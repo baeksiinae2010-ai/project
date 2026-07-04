@@ -3,111 +3,133 @@ from supabase import create_client
 import re
 import pandas as pd
 
-# --- [페이지 기본 설정] ---
-# 아이콘 없이 깔끔하게 이름만 지정합니다.
+# --- [1. 페이지 설정 및 커스텀 디자인] ---
 st.set_page_config(page_title="설문지", layout="centered")
 
-# --- [Supabase 연결] ---
+# 눈이 편안한 모던 디자인을 위한 커스텀 CSS
+st.markdown("""
+    <style>
+    /* 기본 배경 및 폰트 설정 */
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', sans-serif;
+    }
+    
+    /* 제목 스타일링: 아이콘 없이 깔끔하게 */
+    .main-title {
+        font-size: 3rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-align: left;
+    }
+    
+    /* 카드형 메트릭 박스 */
+    [data-testid="stMetric"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* 사이드바 메뉴 스타일 */
+    .stRadio > div {
+        background-color: rgba(255, 255, 255, 0.03);
+        padding: 15px;
+        border-radius: 12px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- [2. Supabase 연결] ---
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
-# --- [ID 생성 함수] ---
+# --- [3. ID 생성 로직] ---
 def get_next_id():
     try:
         response = supabase.table("project").select("id").execute()
         data = response.data
-        if not data: return "S_001"
+        if not data: return "S_011" # 10번까지 이미 있으니 11번부터 시작
         nums = []
         for item in data:
             match = re.search(r'S_(\d+)', item['id'])
             if match: nums.append(int(match.group(1)))
-        if not nums: return "S_001"
+        if not nums: return "S_011"
         next_num = max(nums) + 1
         return f"S_{next_num:03d}"
     except: return "S_ERR"
 
-# --- [사이드바 메뉴] ---
-st.sidebar.title("메뉴")
-page = st.sidebar.radio("이동", ["설문 작성", "데이터 분석"])
+# --- [4. 메뉴 구성] ---
+st.sidebar.markdown("### 설문 관리")
+page = st.sidebar.radio("이동할 페이지", ["설문 작성", "데이터 분석"], label_visibility="collapsed")
 
 # --- [페이지 1: 설문 작성] ---
 if page == "설문 작성":
-    st.title("설문지")
+    st.markdown('<h1 class="main-title">설문지</h1>', unsafe_allow_html=True)
     
     current_id = get_next_id()
-    st.caption(f"현재 설문 번호: {current_id}")
-    st.write("학생들의 학습과 생활 패턴을 알아보기 위한 설문입니다.")
+    st.markdown(f"현재 참여 번호: **{current_id}**")
+    st.write("보다 나은 학습 환경을 위한 데이터 수집에 참여해주세요.")
     
-    # 폼 영역: 입력 칸 사이의 여백을 확보하는 심플한 구조
-    with st.form("survey_form", clear_on_submit=True):
-        grade_class = st.text_input("학년-반 (예: 1-3)")
-        study_hours = st.slider("하루 평균 공부 시간 (시간)", 0.0, 24.0, 3.0, 0.5)
-        academic_score = st.number_input("직전 시험 평균 성적 (점)", min_value=0, max_value=100, value=70)
-        sleep_hours = st.slider("하루 평균 수면 시간 (시간)", 0.0, 24.0, 7.0, 0.5)
-        tired_score = st.slider("오늘 느낀 피곤함 정도 (1: 상쾌함 ~ 10: 매우 피곤함)", 1, 10, 5)
-        favorite_subject = st.selectbox("가장 좋아하는 과목", ["국어", "수학", "영어", "과학", "사회", "체육", "음악", "미술", "정보", "기타"])
+    with st.form("modern_survey", clear_on_submit=True):
+        grade_class = st.text_input("학년-반", placeholder="예: 2-8")
         
-        submitted = st.form_submit_button("제출")
+        col1, col2 = st.columns(2)
+        with col1:
+            study_hours = st.slider("하루 평균 공부 시간", 0.0, 15.0, 3.0, 0.5)
+            academic_score = st.number_input("평균 성적", 0, 100, 70)
+        with col2:
+            sleep_hours = st.slider("평균 수면 시간", 0.0, 15.0, 7.0, 0.5)
+            tired_score = st.select_slider("피곤함 점수", options=list(range(1, 11)), value=5)
+            
+        favorite_subject = st.selectbox("좋아하는 과목", ["국어", "수학", "영어", "과학", "사회", "체육", "음악", "미술", "정보", "기타"])
+        
+        submitted = st.form_submit_button("설문지 제출")
         
         if submitted:
             if not grade_class:
-                st.error("학년-반을 입력해주세요.")
+                st.error("학년-반 정보를 입력해주세요.")
             else:
-                new_data = {
-                    "id": current_id, 
-                    "grade_class": grade_class, 
-                    "study_hours": study_hours,
-                    "academic_score": academic_score,
-                    "sleep_hours": sleep_hours,
-                    "tired_score": tired_score, 
+                new_row = {
+                    "id": current_id, "grade_class": grade_class, 
+                    "study_hours": study_hours, "academic_score": academic_score,
+                    "sleep_hours": sleep_hours, "tired_score": tired_score, 
                     "favorite_subject": favorite_subject
                 }
-                try:
-                    supabase.table("project").insert(new_data).execute()
-                    st.success("제출이 완료되었습니다.")
-                except Exception as e:
-                    st.error(f"오류가 발생했습니다: {e}")
+                supabase.table("project").insert(new_row).execute()
+                st.success("소중한 의견 감사합니다.")
 
 # --- [페이지 2: 데이터 분석] ---
-elif page == "데이터 분석":
-    st.title("데이터 분석")
-    st.write("수집된 데이터를 바탕으로 학습과 생활 패턴의 관계를 확인합니다.")
+else:
+    st.markdown('<h1 class="main-title">데이터 분석</h1>', unsafe_allow_html=True)
+    st.write("학습량, 수면, 성적의 상관관계를 심플한 차트로 분석합니다.")
     
     try:
-        response = supabase.table("project").select("*").execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
+        res = supabase.table("project").select("*").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
             
-            # 1. 핵심 요약 지표 (심플한 숫자형 데이터)
-            col1, col2, col3 = st.columns(3)
-            col1.metric("총 응답수", f"{len(df)}명")
-            col2.metric("평균 공부 시간", f"{df['study_hours'].mean():.1f}시간")
-            col3.metric("평균 피곤함", f"{df['tired_score'].mean():.1f}점")
+            # 요약 지표 (심플한 카드형)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("총 응답", f"{len(df)}명")
+            c2.metric("평균 공부", f"{df['study_hours'].mean():.1f}h")
+            c3.metric("평균 성적", f"{df['academic_score'].mean():.0f}점")
             
-            st.divider()
+            st.markdown("---")
             
-            # 2. 분석 차트: 직관적인 점 그래프 (Scatter Chart) 활용
-            # 산점도는 두 데이터(X축, Y축)의 상관관계를 한눈에 파악하기 가장 좋은 모던한 차트입니다.
-            
+            # 분석 그래프: 가독성을 위해 간결한 설명 추가
             st.subheader("공부 시간과 수면 시간의 관계")
-            st.caption("점이 어떻게 분포하는지 확인하여 공부와 수면의 상관관계를 파악합니다.")
             st.scatter_chart(df, x="study_hours", y="sleep_hours")
             
-            st.divider()
+            st.subheader("공부 시간에 따른 피로도 변화")
+            st.area_chart(df.set_index("study_hours")["tired_score"])
             
-            st.subheader("공부 시간에 따른 피곤함")
-            st.caption("공부 시간이 길어질수록 피곤함 점수가 높아지는지 확인합니다.")
-            st.scatter_chart(df, x="study_hours", y="tired_score")
-            
-            st.divider()
-            
-            # 3. 빈도 분석 차트: 막대 그래프 (Bar Chart)
-            st.subheader("가장 좋아하는 과목")
-            subject_counts = df['favorite_subject'].value_counts()
-            st.bar_chart(subject_counts)
+            st.subheader("과목별 선호도")
+            st.bar_chart(df["favorite_subject"].value_counts())
             
         else:
-            st.info("아직 수집된 데이터가 없습니다.")
+            st.info("데이터가 충분하지 않습니다.")
     except Exception as e:
-        st.error("데이터를 불러오는 중 문제가 발생했습니다.")
+        st.error("분석 데이터를 불러올 수 없습니다.")
