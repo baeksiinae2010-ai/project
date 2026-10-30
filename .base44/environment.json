@@ -1,0 +1,17 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/_stcore/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "SUPABASE_URL",
+      "description": "Optional: URL of a real Supabase project. Omit to use the local Postgres + PostgREST stand-in from docker-compose.base44.yml.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SUPABASE_KEY",
+      "description": "Optional: Supabase anon/service key for that project (the app queries the 'project' table).",
+      "requiredAtBoot": false
+    }
+  ]
+}

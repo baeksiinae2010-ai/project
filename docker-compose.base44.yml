@@ -1,0 +1,119 @@
+# Base44 development stack.
+#   docker compose -f docker-compose.base44.yml up -d --build
+#
+# Runs the Streamlit app from the bind-mounted source (live reload) and talks to
+# a local Supabase-compatible API (Postgres + PostgREST behind nginx) instead of
+# a hosted Supabase project. Real credentials from /run/base44/app.env override
+# the local defaults.
+
+services:
+  web:
+    image: python:3.12-slim
+    restart: on-failure
+    working_dir: /app
+    labels:
+      base44.project: "Survey (Streamlit)"
+      base44.kind: web
+      base44.port: "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - pip-cache:/root/.cache/pip
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    environment:
+      BASE44_PREVIEW_MODE:
+    depends_on:
+      db:
+        condition: service_healthy
+      rest-proxy:
+        condition: service_healthy
+    command:
+      - sh
+      - -ec
+      - |
+        pip install --quiet --disable-pip-version-check --root-user-action=ignore -r /app/requirements.txt
+        mkdir -p /tmp/st
+        cd /tmp/st
+        python /app/dev/supabase-local/write_secrets.py
+        exec streamlit run /app/app.py \
+          --server.port=3000 \
+          --server.address=0.0.0.0 \
+          --server.headless=true \
+          --server.runOnSave=true \
+          --server.fileWatcherType=poll \
+          --browser.gatherUsageStats=false \
+          --server.enableCORS=false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          try:
+              ok = urllib.request.urlopen("http://127.0.0.1:3000/_stcore/health", timeout=4).read().strip() == b"ok"
+          except Exception:
+              ok = False
+          print("streamlit:", "ok" if ok else "unreachable")
+          sys.exit(0 if ok else 1)
+
+  # Local stand-in for Supabase's REST API (what the supabase-py client calls).
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    restart: on-failure
+    labels:
+      base44.kind: infra
+    env_file:
+      - ./.env.base44-defaults
+    environment:
+      PGRST_DB_URI: postgres://authenticator:base44-local-authenticator@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_SERVER_PORT: "3000"
+      PGRST_DB_POOL: "5"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  rest-proxy:
+    image: nginx:alpine
+    restart: on-failure
+    labels:
+      base44.kind: infra
+    volumes:
+      - ./dev/supabase-local/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      rest:
+        condition: service_started
+    # One probe covers both this proxy and PostgREST behind it (the PostgREST
+    # image ships no shell or HTTP client of its own).
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  db:
+    image: postgres:16
+    restart: on-failure
+    labels:
+      base44.kind: infra
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: base44-local-postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./dev/supabase-local/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  db-data:
+  pip-cache:
